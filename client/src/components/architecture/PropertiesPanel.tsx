@@ -25,6 +25,13 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
         latency: selectedNode.data.latency || '5',
         frequency: selectedNode.data.frequency || '2.5',
         power: selectedNode.data.power || '15',
+        // DRAM specific defaults
+        tCL: selectedNode.data.tCL || '16',
+        tRCD: selectedNode.data.tRCD || '18',
+        tRP: selectedNode.data.tRP || '18',
+        tRAS: selectedNode.data.tRAS || '36',
+        banks: selectedNode.data.banks || '16',
+        busWidth: selectedNode.data.busWidth || '64',
       });
     }
   }, [selectedNode, reset]);
@@ -67,6 +74,72 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
             </div>
             
             <Separator className="bg-sidebar-border" />
+
+            {/* DRAM Specific Controls */}
+            {selectedNode.data.label === 'DRAM Controller' && (
+              <div className="space-y-3">
+                 <h3 className="text-xs font-semibold text-accent font-mono flex items-center gap-2">
+                  <Activity className="w-3 h-3" /> DRAM Timing
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono text-muted-foreground">CAS Latency (CL)</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="16"
+                      {...register('tCL')} 
+                      className="font-mono bg-background/50 border-sidebar-border h-7 text-xs" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono text-muted-foreground">tRCD</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="18"
+                      {...register('tRCD')} 
+                      className="font-mono bg-background/50 border-sidebar-border h-7 text-xs" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono text-muted-foreground">tRP</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="18"
+                      {...register('tRP')} 
+                      className="font-mono bg-background/50 border-sidebar-border h-7 text-xs" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono text-muted-foreground">tRAS</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="36"
+                      {...register('tRAS')} 
+                      className="font-mono bg-background/50 border-sidebar-border h-7 text-xs" 
+                    />
+                  </div>
+                   <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono text-muted-foreground">Banks</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="16"
+                      {...register('banks')} 
+                      className="font-mono bg-background/50 border-sidebar-border h-7 text-xs" 
+                    />
+                  </div>
+                   <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono text-muted-foreground">Bus Width</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="64"
+                      {...register('busWidth')} 
+                      className="font-mono bg-background/50 border-sidebar-border h-7 text-xs" 
+                    />
+                  </div>
+                </div>
+                <Separator className="bg-sidebar-border" />
+              </div>
+            )}
 
             <div className="space-y-3">
               <h3 className="text-xs font-semibold text-primary font-mono flex items-center gap-2">

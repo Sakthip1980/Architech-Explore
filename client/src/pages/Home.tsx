@@ -58,16 +58,38 @@ export default function Home() {
 
   // Generate Python-like representation for display
   const generatePythonCode = () => {
-    let code = "import arch_sim as sim\n\n# Initialize System\nsystem = sim.System(name='MyArchitecture')\n\n";
+    let code = "import arch_sim as sim\nfrom arch_sim.models import DRAM, CPU, GPU, Interconnect\n\n# Initialize System\nsystem = sim.System(name='MyArchitecture')\n\n";
     
     nodes.forEach(node => {
       const type = node.data.label.replace(/\s+/g, '');
-      code += `${type}_${node.id} = sim.${type}(\n`;
-      code += `    bandwidth='${node.data.bandwidth}GB/s',\n`;
-      code += `    latency='${node.data.latency}ns',\n`;
-      code += `    freq='${node.data.frequency}GHz'\n`;
-      code += `)\n`;
-      code += `system.add_module(${type}_${node.id})\n\n`;
+      const varName = `${type}_${node.id}`;
+      
+      if (node.data.label === 'DRAM Controller') {
+        code += `# Detailed DRAM Model configuration\n`;
+        code += `${varName} = sim.DRAM(\n`;
+        code += `    name='${node.data.label}',\n`;
+        code += `    capacity='${node.data.bandwidth || 32}GB', # Inferred\n`;
+        code += `    timings={\n`;
+        code += `        'tCL': ${node.data.tCL || 16},\n`;
+        code += `        'tRCD': ${node.data.tRCD || 18},\n`;
+        code += `        'tRP': ${node.data.tRP || 18},\n`;
+        code += `        'tRAS': ${node.data.tRAS || 36}\n`;
+        code += `    },\n`;
+        code += `    geometry={\n`;
+        code += `        'banks': ${node.data.banks || 16},\n`;
+        code += `        'bus_width': ${node.data.busWidth || 64},\n`;
+        code += `        'ranks': 2\n`;
+        code += `    },\n`;
+        code += `    power_model='ddr4_high_perf'\n`;
+        code += `)\n`;
+      } else {
+        code += `${varName} = sim.${type}(\n`;
+        code += `    bandwidth='${node.data.bandwidth}GB/s',\n`;
+        code += `    latency='${node.data.latency}ns',\n`;
+        code += `    freq='${node.data.frequency}GHz'\n`;
+        code += `)\n`;
+      }
+      code += `system.add_module(${varName})\n\n`;
     });
 
     code += "# Connections\n";
