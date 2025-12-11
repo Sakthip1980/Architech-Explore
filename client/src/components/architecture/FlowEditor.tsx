@@ -152,13 +152,52 @@ const FlowEditorInner = ({
           <Button 
             size="sm" 
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-mono text-xs gap-2"
-            onClick={() => {
-              console.log({ nodes, edges });
-              toast({ 
-                title: "Simulating...", 
-                description: "Exporting graph topology to Python backend (mocked).",
-                duration: 3000,
-              });
+            onClick={async () => {
+              try {
+                toast({ title: "Building system...", description: "Converting graph to simulation model" });
+                
+                // Build system
+                const buildRes = await fetch('/api/simulator/build', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ nodes, edges })
+                });
+                const buildData = await buildRes.json();
+                
+                if (buildData.error) {
+                  toast({ title: "Build Error", description: buildData.error, variant: "destructive" });
+                  return;
+                }
+                
+                toast({ title: "Running simulation...", description: "Executing 1000 cycles" });
+                
+                // Run simulation
+                const simRes = await fetch('/api/simulator/run', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ cycles: 1000, workload: 'memory_intensive' })
+                });
+                const simData = await simRes.json();
+                
+                if (simData.error) {
+                  toast({ title: "Simulation Error", description: simData.error, variant: "destructive" });
+                  return;
+                }
+                
+                toast({ 
+                  title: "Simulation Complete!", 
+                  description: `Avg Latency: ${simData.average_latency_ns?.toFixed(2)}ns | Power: ${simData.total_power_watts?.toFixed(1)}W`,
+                  duration: 5000,
+                });
+                
+                console.log('Simulation Results:', simData);
+              } catch (error: any) {
+                toast({ 
+                  title: "Error", 
+                  description: error.message,
+                  variant: "destructive"
+                });
+              }
             }}
           >
             <Play className="w-3 h-3" /> Run Simulation
