@@ -14,11 +14,13 @@ from simulator import (
     # Memory
     DRAM, HBM, SRAMCache, NVM, Scratchpad,
     # Compute
-    CPU, GPU, NPU, DSP,
+    CPU, GPU, NPU, DSP, SystolicArray,
     # Interconnects
     Interconnect, AXIBus, PCIe, CXL,
     # Specialized
-    DMAEngine, MemoryController
+    DMAEngine, MemoryController,
+    # Workloads
+    Workload, get_resnet50_workload, get_gpt2_workload, get_llama7b_workload
 )
 
 # State file for persistence between calls
@@ -150,6 +152,16 @@ class SimulatorAPI:
                 vector_width=safe_int(data.get('vectorWidth', 256), 256),
                 tdp_watts=safe_float(data.get('power', 5), 5)
             )
+        elif label == 'Systolic Array':
+            return SystolicArray(
+                name=f"SystolicArray_{node_id}",
+                array_height=safe_int(data.get('arrayHeight', 256), 256),
+                array_width=safe_int(data.get('arrayWidth', 256), 256),
+                frequency_ghz=safe_float(data.get('frequency', 1.0), 1.0),
+                dataflow=str(data.get('dataflow', 'OS')),
+                precision_bytes=safe_int(data.get('precisionBytes', 2), 2),
+                tdp_watts=safe_float(data.get('power', 100), 100)
+            )
         
         # Interconnects
         elif label == 'NoC / Bus':
@@ -272,6 +284,173 @@ class SimulatorAPI:
             return {'error': 'No system built'}
         
         return self.system.get_topology()
+    
+    def run_workload_simulation(
+        self,
+        graph_data: Dict[str, Any],
+        workload_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Run a workload-based simulation on the architecture.
+        
+        Args:
+            graph_data: Node graph representing the architecture
+            workload_data: Workload definition (preset, custom, or CSV)
+        """
+        # Build the system first
+        self.build_system_from_graph(graph_data)
+        
+        # Create workload based on type
+        workload_type = workload_data.get('type', 'preset')
+        batch = safe_int(workload_data.get('batch', 1), 1)
+        seq_len = safe_int(workload_data.get('seq_len', 512), 512)
+        
+        if workload_type == 'preset':
+            preset = workload_data.get('preset', 'gpt2')
+            if preset == 'gpt2':
+                workload = get_gpt2_workload(batch=batch, seq_len=seq_len)
+            elif preset == 'llama7b':
+                workload = get_llama7b_workload(batch=batch, seq_len=seq_len)
+            elif preset == 'resnet50':
+                workload = get_resnet50_workload(batch=batch)
+            else:
+                workload = Workload("Custom")
+        elif workload_type == 'csv':
+            csv_content = workload_data.get('content', '')
+            workload = Workload.from_csv(csv_content)
+        elif workload_type == 'custom':
+            workload = Workload("Custom")
+            for layer in workload_data.get('layers', []):
+                workload.add_gemm(
+                    name=layer.get('name', 'layer'),
+                    M=safe_int(layer.get('M', 1024), 1024),
+                    K=safe_int(layer.get('K', 1024), 1024),
+                    N=safe_int(layer.get('N', 1024), 1024)
+                )
+        else:
+            workload = Workload("Empty")
+        
+        # Find systolic arrays in the system
+        systolic_arrays = []
+        for module_name, module in self.system.modules.items():
+            if isinstance(module, SystolicArray):
+                systolic_arrays.append(module)
+        
+        if not systolic_arrays:
+            return {'error': 'No Systolic Array found in the architecture. Add one to run workload simulation.'}
+        
+        # Use the first systolic array for simulation
+        sa = systolic_arrays[0]
+        
+        # Calculate tile sizes based on array dimensions
+        tile_M = min(sa.array_height, 256)
+        tile_K = min(256, 256)  # Reasonable default
+        tile_N = min(sa.array_width, 256)
+        
+        # Simulate each layer
+        per_layer_results = []
+        total_cycles = 0
+        total_stalls = 0
+        total_ops = 0
+        total_bytes = 0
+        
+        for layer in workload.layers:
+            # Simulate the GEMM operation
+            result = sa.simulate_gemm(
+                M=layer.M,
+                K=layer.K,
+                N=layer.N,
+                tile_M=tile_M,
+                tile_K=tile_K,
+                tile_N=tile_N,
+                memory_stall_cycles=0  # Will be calculated later with memory hierarchy
+            )
+            
+            layer_bytes = layer.get_bytes(sa.precision_bytes)['total']
+            
+            per_layer_results.append({
+                'name': layer.name,
+                'cycles': result['total_cycles'],
+                'utilization': result['utilization_pct'],
+                'stalls': result['stall_cycles'],
+                'bytes_moved': layer_bytes
+            })
+            
+            total_cycles += result['total_cycles']
+            total_stalls += result['stall_cycles']
+            total_ops += result['total_ops']
+            total_bytes += layer_bytes
+        
+        # Calculate overall metrics
+        compute_cycles = total_cycles - total_stalls
+        execution_time_ns = total_cycles / sa.frequency_ghz
+        throughput_tflops = (total_ops / execution_time_ns) * 1e-3 if execution_time_ns > 0 else 0
+        
+        # Estimate energy (simplified model)
+        compute_energy_pj_per_op = 0.5  # pJ per MAC
+        memory_energy_pj_per_bit = 5.0  # pJ per bit for off-chip
+        total_energy = (total_ops * compute_energy_pj_per_op) + (total_bytes * 8 * memory_energy_pj_per_bit)
+        
+        # Detect bottlenecks
+        bottlenecks = []
+        overall_util = (total_ops / (compute_cycles * sa.peak_ops_per_cycle) * 100) if compute_cycles > 0 else 0
+        
+        if overall_util < 50:
+            bottlenecks.append({
+                'component': sa.name,
+                'type': 'compute_underutilization',
+                'severity': 'high' if overall_util < 25 else 'medium',
+                'description': f'Systolic array utilization at {overall_util:.1f}%. Consider larger batch sizes or different tile sizes.'
+            })
+        
+        if total_stalls > compute_cycles * 0.1:
+            bottlenecks.append({
+                'component': 'Memory System',
+                'type': 'memory_bandwidth',
+                'severity': 'high' if total_stalls > compute_cycles * 0.5 else 'medium',
+                'description': f'Memory stalls account for {(total_stalls/total_cycles*100):.1f}% of execution time.'
+            })
+        
+        return {
+            'summary': {
+                'total_cycles': total_cycles,
+                'compute_cycles': compute_cycles,
+                'stall_cycles': total_stalls,
+                'utilization_pct': overall_util,
+                'throughput_tflops': throughput_tflops,
+                'total_energy_pj': total_energy,
+                'power_watts': sa.tdp_watts
+            },
+            'per_layer': per_layer_results,
+            'memory_hierarchy': [
+                {
+                    'name': 'L0 (Registers)',
+                    'bytes_accessed': total_bytes * 0.3,
+                    'energy_pj': total_bytes * 0.3 * 8 * 0.5,
+                    'bandwidth_util': min(95, overall_util * 1.2)
+                },
+                {
+                    'name': 'L1 (Scratchpad)',
+                    'bytes_accessed': total_bytes * 0.5,
+                    'energy_pj': total_bytes * 0.5 * 8 * 2,
+                    'bandwidth_util': min(90, overall_util)
+                },
+                {
+                    'name': 'L2 (SRAM)',
+                    'bytes_accessed': total_bytes * 0.8,
+                    'energy_pj': total_bytes * 0.8 * 8 * 5,
+                    'bandwidth_util': min(80, overall_util * 0.8)
+                },
+                {
+                    'name': 'HBM/DRAM',
+                    'bytes_accessed': total_bytes,
+                    'energy_pj': total_bytes * 8 * 10,
+                    'bandwidth_util': min(70, overall_util * 0.6)
+                }
+            ],
+            'bottlenecks': bottlenecks,
+            'workload': workload.get_summary()
+        }
 
 
 # Global simulator instance

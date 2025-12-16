@@ -1,9 +1,7 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import ReactFlow, {
   ReactFlowProvider,
   addEdge,
-  useNodesState,
-  useEdgesState,
   Controls,
   Background,
   BackgroundVariant,
@@ -13,15 +11,20 @@ import ReactFlow, {
   Panel,
 } from 'reactflow';
 import { Button } from '@/components/ui/button';
-import { Play, Download, Trash, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { CustomNode } from './CustomNode';
+import { DataFlowEdge } from './DataFlowEdge';
 import { useToast } from '@/hooks/use-toast';
 
 const nodeTypes = {
   custom: CustomNode,
 };
 
-const initialNodes: Node[] = [
+const edgeTypes = {
+  dataflow: DataFlowEdge,
+};
+
+const defaultInitialNodes: Node[] = [
   {
     id: '1',
     type: 'custom',
@@ -36,11 +39,11 @@ const initialNodes: Node[] = [
   },
 ];
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true, style: { stroke: '#06b6d4', strokeWidth: 2 } },
+const defaultInitialEdges: Edge[] = [
+  { id: 'e1-2', source: '1', target: '2', type: 'dataflow', animated: true, data: { bandwidth: 0, utilization: 0, isActive: false } },
 ];
 
-let id = 3;
+let id = 10;
 const getId = () => `${id++}`;
 
 interface FlowEditorProps {
@@ -52,6 +55,8 @@ interface FlowEditorProps {
   setEdges: any;
   onNodesChange: any;
   onEdgesChange: any;
+  edgeData?: Record<string, { bandwidth: number; utilization: number; isActive: boolean }>;
+  simulationActive?: boolean;
 }
 
 const FlowEditorInner = ({ 
@@ -62,14 +67,33 @@ const FlowEditorInner = ({
   setNodes,
   setEdges,
   onNodesChange,
-  onEdgesChange
+  onEdgesChange,
+  edgeData = {},
+  simulationActive = false,
 }: FlowEditorProps) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
   const { toast } = useToast();
 
+  const enrichedEdges = useMemo(() => {
+    return edges.map(edge => ({
+      ...edge,
+      type: 'dataflow',
+      data: {
+        ...edge.data,
+        ...edgeData[edge.id],
+        isActive: simulationActive || edgeData[edge.id]?.isActive,
+      }
+    }));
+  }, [edges, edgeData, simulationActive]);
+
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds: Edge[]) => addEdge({ ...params, animated: true, style: { stroke: '#06b6d4', strokeWidth: 2 } }, eds)),
+    (params: Connection) => setEdges((eds: Edge[]) => addEdge({ 
+      ...params, 
+      type: 'dataflow',
+      animated: true, 
+      data: { bandwidth: 0, utilization: 0, isActive: false }
+    }, eds)),
     [setEdges],
   );
 
@@ -110,16 +134,15 @@ const FlowEditorInner = ({
     onNodeSelect(nodes[0] || null);
   }, [onNodeSelect]);
 
-  // Update parent state whenever graph changes
   React.useEffect(() => {
     onGraphUpdate(nodes, edges);
   }, [nodes, edges, onGraphUpdate]);
 
   return (
-    <div className="w-full h-full" ref={reactFlowWrapper}>
+    <div className="w-full h-full relative" ref={reactFlowWrapper}>
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={enrichedEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -128,6 +151,7 @@ const FlowEditorInner = ({
         onDragOver={onDragOver}
         onSelectionChange={onSelectionChange}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         className="bg-background"
         snapToGrid={true}
@@ -142,55 +166,13 @@ const FlowEditorInner = ({
             size="sm" 
             className="bg-card border-border hover:bg-muted font-mono text-xs gap-2"
             onClick={() => {
-              setNodes(initialNodes);
-              setEdges(initialEdges);
+              setNodes(defaultInitialNodes);
+              setEdges(defaultInitialEdges);
               toast({ title: "Reset", description: "Graph reset to default state" });
             }}
+            data-testid="button-reset-graph"
           >
             <RefreshCw className="w-3 h-3" /> Reset
-          </Button>
-          <Button 
-            size="sm" 
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-mono text-xs gap-2"
-            onClick={async () => {
-              try {
-                toast({ title: "Running simulation...", description: "Building system and executing 1000 cycles" });
-                
-                // Build and run in one call
-                const res = await fetch('/api/simulator/build-and-run', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                    graph: { nodes, edges },
-                    cycles: 1000, 
-                    workload: 'memory_intensive' 
-                  })
-                });
-                const data = await res.json();
-                
-                if (data.error) {
-                  toast({ title: "Simulation Error", description: data.error, variant: "destructive" });
-                  return;
-                }
-                
-                const simData = data.simulation;
-                toast({ 
-                  title: "Simulation Complete!", 
-                  description: `Avg Latency: ${simData.average_latency_ns?.toFixed(2)}ns | Power: ${simData.total_power_watts?.toFixed(1)}W`,
-                  duration: 5000,
-                });
-                
-                console.log('Simulation Results:', data);
-              } catch (error: any) {
-                toast({ 
-                  title: "Error", 
-                  description: error.message,
-                  variant: "destructive"
-                });
-              }
-            }}
-          >
-            <Play className="w-3 h-3" /> Run Simulation
           </Button>
         </Panel>
       </ReactFlow>
@@ -198,7 +180,7 @@ const FlowEditorInner = ({
   );
 };
 
-export const FlowEditor = (props: any) => (
+export const FlowEditor = (props: FlowEditorProps) => (
   <ReactFlowProvider>
     <FlowEditorInner {...props} />
   </ReactFlowProvider>

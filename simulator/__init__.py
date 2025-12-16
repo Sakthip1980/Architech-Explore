@@ -18,6 +18,7 @@ from .models.cpu import CPU
 from .models.gpu import GPU
 from .models.npu import NPU
 from .models.dsp import DSP
+from .models.systolic_array import SystolicArray, MemoryHierarchy
 
 # Interconnects
 from .models.interconnect import Interconnect
@@ -28,6 +29,12 @@ from .models.cxl import CXL
 # Specialized
 from .models.dma import DMAEngine
 from .models.memory_controller import MemoryController
+
+# Workloads
+from .models.workload import (
+    Workload, GEMMLayer, ConvLayer,
+    get_resnet50_workload, get_gpt2_workload, get_llama7b_workload
+)
 
 __all__ = [
     'System',
@@ -44,6 +51,8 @@ __all__ = [
     'GPU',
     'NPU',
     'DSP',
+    'SystolicArray',
+    'MemoryHierarchy',
     # Interconnects
     'Interconnect',
     'AXIBus',
@@ -51,5 +60,12 @@ __all__ = [
     'CXL',
     # Specialized
     'DMAEngine',
-    'MemoryController'
+    'MemoryController',
+    # Workloads
+    'Workload',
+    'GEMMLayer',
+    'ConvLayer',
+    'get_resnet50_workload',
+    'get_gpt2_workload',
+    'get_llama7b_workload'
 ]

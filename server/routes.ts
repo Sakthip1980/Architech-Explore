@@ -55,6 +55,18 @@ export async function registerRoutes(
     }
   });
 
+  // Run workload simulation
+  app.post("/api/simulator/workload", async (req, res) => {
+    try {
+      const { graph, workload } = req.body;
+      
+      const result = await runPythonScript('run_workload', { graph, workload });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 

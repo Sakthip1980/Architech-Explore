@@ -39,6 +39,11 @@ def main():
             )
         elif command == 'get_status':
             result = simulator.get_system_status()
+        elif command == 'run_workload':
+            result = simulator.run_workload_simulation(
+                graph_data=data.get('graph', {}),
+                workload_data=data.get('workload', {})
+            )
         else:
             result = {'error': f'Unknown command: {command}'}
         

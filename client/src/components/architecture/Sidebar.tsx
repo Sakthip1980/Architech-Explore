@@ -37,6 +37,7 @@ const categories: ModuleCategory[] = [
       { type: 'gpu', label: 'GPU Accelerator', icon: Zap, color: 'text-yellow-400', description: 'Parallel compute' },
       { type: 'npu', label: 'NPU', icon: CircuitBoard, color: 'text-orange-400', description: 'Neural processor' },
       { type: 'dsp', label: 'DSP', icon: Workflow, color: 'text-amber-400', description: 'Signal processing' },
+      { type: 'systolic', label: 'Systolic Array', icon: Layers, color: 'text-red-400', description: 'GEMM accelerator' },
     ]
   },
   {

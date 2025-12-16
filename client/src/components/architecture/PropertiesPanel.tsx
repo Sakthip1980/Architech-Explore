@@ -90,6 +90,11 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
         policy: d.policy || 'FR-FCFS',
         // CPU
         cores: d.cores || '4',
+        // Systolic Array
+        arrayHeight: d.arrayHeight || '256',
+        arrayWidth: d.arrayWidth || '256',
+        dataflow: d.dataflow || 'OS',
+        precisionBytes: d.precisionBytes || '2',
       });
     }
   }, [selectedNode, reset]);
@@ -102,12 +107,12 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
 
   if (!selectedNode) {
     return (
-      <aside className="w-72 bg-sidebar border-l border-sidebar-border h-full p-4 z-10 hidden md:block">
+      <div className="h-full p-4">
         <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-center p-6 border border-dashed border-sidebar-border rounded-lg bg-sidebar/50">
           <Settings2 className="w-10 h-10 mb-3 opacity-20" />
           <p className="text-sm font-mono">Select a module to configure parameters</p>
         </div>
-      </aside>
+      </div>
     );
   }
 
@@ -392,6 +397,37 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
           </div>
         );
 
+      case 'Systolic Array':
+        return (
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-red-400 font-mono flex items-center gap-2">
+              <Zap className="w-3 h-3" /> Systolic Array Config
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <InputField label="Array Height" name="arrayHeight" register={register} placeholder="256" />
+              <InputField label="Array Width" name="arrayWidth" register={register} placeholder="256" />
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-mono text-muted-foreground">Dataflow</Label>
+                <select {...register('dataflow')} className="w-full h-7 text-xs font-mono bg-background/50 border border-sidebar-border rounded px-2">
+                  <option value="OS">Output Stationary</option>
+                  <option value="WS">Weight Stationary</option>
+                  <option value="IS">Input Stationary</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-mono text-muted-foreground">Precision</Label>
+                <select {...register('precisionBytes')} className="w-full h-7 text-xs font-mono bg-background/50 border border-sidebar-border rounded px-2">
+                  <option value="1">INT8 (1B)</option>
+                  <option value="2">FP16 (2B)</option>
+                  <option value="4">FP32 (4B)</option>
+                </select>
+              </div>
+              <InputField label="Frequency" name="frequency" register={register} placeholder="1.0" unit="GHz" />
+              <InputField label="TDP" name="power" register={register} placeholder="100" unit="W" />
+            </div>
+          </div>
+        );
+
       default:
         return (
           <div className="space-y-3">
@@ -410,7 +446,7 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
   };
 
   return (
-    <aside className="w-72 bg-sidebar border-l border-sidebar-border h-full flex flex-col z-10">
+    <div className="h-full flex flex-col">
       <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
         <h2 className="font-mono font-bold text-sm flex items-center gap-2">
           <Settings2 className="w-4 h-4 text-primary" />
@@ -449,6 +485,6 @@ export const PropertiesPanel = ({ selectedNode, updateNodeData, deleteNode }: Pr
           <Trash2 className="w-3 h-3" /> Remove Module
         </Button>
       </div>
-    </aside>
+    </div>
   );
 };
