@@ -1,0 +1,8 @@
+*.swp
+*.swo
+__pycache__/
+output/
+venv/
+astra_cache/
+log/*.log
+tmp/
