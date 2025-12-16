@@ -40,10 +40,53 @@ Preferred communication style: Simple, everyday language.
 - Hardware models: DRAM, HBM, SRAM Cache, NVM, Scratchpad (memory); CPU, GPU, NPU, DSP (compute); AXI, PCIe, CXL, NoC (interconnects); DMA, Memory Controller (specialized)
 - `System` class orchestrates simulation, generates workloads, collects metrics
 
+### Configuration System (NEW)
+Located in `/simulator/configs/`:
+- **hardware_presets.py**: A100, H100, V100, TPU v3 presets with 4-level memory hierarchy (L0-L3), core configs, network configs
+- **model_presets.py**: LLM models (Llama2/3, GPT-2/3, BERT) with attention configs (MHA/GQA), MoE support, memory estimation
+- **precision.py**: FP32/FP16/BF16/FP8/INT8 modes with mixed precision and param storage modes
+- **parallelism.py**: DP/TP/PP/CP parallelism with ZeRO stages 0-3, microbatch support
+- **network.py**: Ring/Switch/FullyConnected/2D Torus topologies with collective algorithms (AllReduce, AllGather, etc.)
+
 ### Key Design Patterns
 - **Component-based architecture** - Hardware modules are self-contained with their own timing/power models
 - **Bridge pattern** - Node.js to Python communication via CLI/JSON for simulation execution
 - **In-memory storage** - User data stored in memory (MemStorage class), database schema exists but storage implementation uses Maps
+- **Preset-based configuration** - Hardware/model/network presets matching DeepFlow and Astra-Sim reference simulators
+
+## Features (Aligned with DeepFlow/Astra-Sim)
+
+### Hardware Configuration
+- **GPU Presets**: NVIDIA A100 80GB, H100 SXM5 80GB, V100 32GB
+- **TPU Support**: Google TPU v3
+- **4-Level Memory Hierarchy**: Register File (L0) → Shared Memory (L1) → L2 Cache → HBM/DRAM (L3)
+- **Per-level energy model**: J/bit for each memory level
+- **Dataflow modes**: Weight Stationary, Output Stationary, Input Stationary, Best
+
+### Model/Workload Support
+- **LLM Models**: Llama2-7B, Llama3.1-8B/70B/405B, GPT-2, GPT-3 175B
+- **Transformer Components**: BERT-Base, BERT-Large
+- **CNNs**: ResNet-50 (as GEMM workload)
+- **Attention Types**: MHA, GQA (Grouped Query Attention), MQA
+- **FlashAttention**: Toggle support for memory-efficient attention
+- **MoE**: Mixture of Experts with configurable num_experts and top_k
+
+### Parallelism Strategies
+- **Data Parallel (DP)**: With ZeRO optimization stages 0-3
+- **Tensor Parallel (TP)**: With sequence parallelism option
+- **Pipeline Parallel (PP)**: With microbatch scheduling
+- **Context Parallel (CP)**: For long sequence training
+
+### Network Topology
+- **Topologies**: Ring, Switch, FullyConnected, 2D Torus
+- **Network Presets**: DGX V100, HGX H100 (8/16/32 GPU), TPU v3 Pod
+- **Collective Operations**: AllReduce, AllGather, ReduceScatter, AllToAll
+- **Algorithms**: Ring, HalvingDoubling, DoubleBinaryTree, Direct
+
+### Training vs Inference
+- **Training Mode**: FWD+BWD with optimizer state memory estimation
+- **Inference Mode**: KV-cache modeling with memory estimation
+- **Memory Estimation**: Params, gradients, optimizer states, activations
 
 ## External Dependencies
 
@@ -66,3 +109,12 @@ Preferred communication style: Simple, everyday language.
 ### Python Dependencies
 - Standard library only (no requirements.txt visible)
 - Simulator is self-contained with no external Python packages
+
+## API Endpoints
+
+- `POST /api/simulator/build` - Build system from graph data
+- `POST /api/simulator/run` - Run simulation cycles
+- `POST /api/simulator/build-and-run` - Build and run in one call
+- `GET /api/simulator/status` - Get current system status
+- `POST /api/simulator/workload` - Run workload-based simulation with configs
+- `GET /api/simulator/presets` - Get all available hardware/model/network presets

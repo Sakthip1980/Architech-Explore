@@ -44,6 +44,8 @@ def main():
                 graph_data=data.get('graph', {}),
                 workload_data=data.get('workload', {})
             )
+        elif command == 'get_presets':
+            result = simulator.get_available_presets()
         else:
             result = {'error': f'Unknown command: {command}'}
         

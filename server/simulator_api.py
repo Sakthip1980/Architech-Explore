@@ -23,6 +23,16 @@ from simulator import (
     Workload, get_resnet50_workload, get_gpt2_workload, get_llama7b_workload
 )
 
+# Import new configs
+from simulator.configs import (
+    HardwareConfig, get_hardware_preset, HARDWARE_PRESETS,
+    ModelConfig, get_model_preset, MODEL_PRESETS,
+    PrecisionConfig, PRECISION_MODES,
+    ParallelismConfig,
+    NetworkConfig, NetworkTopology, NETWORK_PRESETS,
+)
+from simulator.configs.network import CollectiveType
+
 # State file for persistence between calls
 STATE_FILE = os.path.join(project_root, '.simulator_state.json')
 
@@ -49,6 +59,9 @@ class SimulatorAPI:
     def __init__(self):
         self.system: Optional[System] = None
         self._graph_data: Optional[Dict] = None
+        self._hardware_config: Optional[HardwareConfig] = None
+        self._parallelism_config: Optional[ParallelismConfig] = None
+        self._network_config: Optional[NetworkConfig] = None
         
     def _save_state(self, graph_data: Dict):
         """Save graph data to file for persistence"""
@@ -285,6 +298,24 @@ class SimulatorAPI:
         
         return self.system.get_topology()
     
+    def get_available_presets(self) -> Dict[str, Any]:
+        """Get all available configuration presets"""
+        return {
+            'hardware': {
+                name: config.to_dict() 
+                for name, config in HARDWARE_PRESETS.items()
+            },
+            'models': {
+                name: config.to_dict()
+                for name, config in MODEL_PRESETS.items()
+            },
+            'precision': list(PRECISION_MODES.keys()),
+            'networks': {
+                name: config.to_dict()
+                for name, config in NETWORK_PRESETS.items()
+            }
+        }
+    
     def run_workload_simulation(
         self,
         graph_data: Dict[str, Any],
@@ -300,10 +331,43 @@ class SimulatorAPI:
         # Build the system first
         self.build_system_from_graph(graph_data)
         
+        # Get hardware preset if specified
+        hw_preset_name = workload_data.get('hardware_preset')
+        if hw_preset_name and hw_preset_name in HARDWARE_PRESETS:
+            self._hardware_config = get_hardware_preset(hw_preset_name)
+        
+        # Get parallelism config
+        parallelism_data = workload_data.get('parallelism', {})
+        self._parallelism_config = ParallelismConfig(
+            dp=safe_int(parallelism_data.get('dp', 1), 1),
+            pp=safe_int(parallelism_data.get('pp', 1), 1),
+            tp=safe_int(parallelism_data.get('tp', 1), 1),
+            cp=safe_int(parallelism_data.get('cp', 1), 1),
+            num_microbatches=safe_int(parallelism_data.get('num_microbatches', 1), 1),
+        )
+        
+        # Get network config
+        network_preset_name = workload_data.get('network_preset')
+        if network_preset_name and network_preset_name in NETWORK_PRESETS:
+            self._network_config = NETWORK_PRESETS[network_preset_name]
+        else:
+            self._network_config = NetworkConfig(
+                npus_count=self._parallelism_config.get_total_devices()
+            )
+        
         # Create workload based on type
         workload_type = workload_data.get('type', 'preset')
         batch = safe_int(workload_data.get('batch', 1), 1)
         seq_len = safe_int(workload_data.get('seq_len', 512), 512)
+        
+        # Check for model preset
+        model_preset_name = workload_data.get('model_preset')
+        model_config: Optional[ModelConfig] = None
+        
+        if model_preset_name and model_preset_name in MODEL_PRESETS:
+            model_config = get_model_preset(model_preset_name)
+            model_config.batch_size = batch
+            model_config.seq_len = seq_len
         
         if workload_type == 'preset':
             preset = workload_data.get('preset', 'gpt2')
@@ -327,6 +391,17 @@ class SimulatorAPI:
                     K=safe_int(layer.get('K', 1024), 1024),
                     N=safe_int(layer.get('N', 1024), 1024)
                 )
+        elif workload_type == 'llm' and model_config:
+            # Generate workload from model config
+            workload = Workload(model_config.name)
+            gemm_dims = model_config.get_layers_gemm_dims()
+            for gemm in gemm_dims:
+                workload.add_gemm(
+                    name=gemm['name'],
+                    M=gemm['M'],
+                    K=gemm['K'],
+                    N=gemm['N']
+                )
         else:
             workload = Workload("Empty")
         
@@ -342,10 +417,24 @@ class SimulatorAPI:
         # Use the first systolic array for simulation
         sa = systolic_arrays[0]
         
-        # Calculate tile sizes based on array dimensions
+        # Use hardware config memory hierarchy if available
         tile_M = min(sa.array_height, 256)
-        tile_K = min(256, 256)  # Reasonable default
+        tile_K = 256
         tile_N = min(sa.array_width, 256)
+        
+        if self._hardware_config:
+            # Calculate tile size from innermost memory (L0)
+            l0_config = self._hardware_config.memory_hierarchy.get('l0')
+            if l0_config:
+                import math
+                capacity = l0_config.size_bytes
+                precision_bytes = sa.precision_bytes
+                max_dim = int(math.sqrt(capacity / (3 * precision_bytes)))
+                if max_dim > 0:
+                    max_dim = 2 ** int(math.log2(max_dim))
+                    tile_M = min(tile_M, max_dim)
+                    tile_K = min(tile_K, max_dim)
+                    tile_N = min(tile_N, max_dim)
         
         # Simulate each layer
         per_layer_results = []
@@ -363,7 +452,7 @@ class SimulatorAPI:
                 tile_M=tile_M,
                 tile_K=tile_K,
                 tile_N=tile_N,
-                memory_stall_cycles=0  # Will be calculated later with memory hierarchy
+                memory_stall_cycles=0
             )
             
             layer_bytes = layer.get_bytes(sa.precision_bytes)['total']
@@ -386,10 +475,48 @@ class SimulatorAPI:
         execution_time_ns = total_cycles / sa.frequency_ghz
         throughput_tflops = (total_ops / execution_time_ns) * 1e-3 if execution_time_ns > 0 else 0
         
-        # Estimate energy (simplified model)
-        compute_energy_pj_per_op = 0.5  # pJ per MAC
-        memory_energy_pj_per_bit = 5.0  # pJ per bit for off-chip
-        total_energy = (total_ops * compute_energy_pj_per_op) + (total_bytes * 8 * memory_energy_pj_per_bit)
+        # Apply parallelism overhead
+        if self._parallelism_config:
+            comm_overhead = self._parallelism_config.get_communication_overhead_factor()
+            total_cycles = int(total_cycles * comm_overhead)
+            
+            # Add collective communication time
+            if self._parallelism_config.dp > 1 and self._network_config:
+                # AllReduce for gradients
+                grad_bytes = total_bytes  # Simplified
+                allreduce_time_ns = self._network_config.estimate_collective_time_ns(
+                    CollectiveType.ALL_REDUCE,
+                    grad_bytes,
+                    self._parallelism_config.dp
+                )
+                total_cycles += int(allreduce_time_ns * sa.frequency_ghz)
+            
+            if self._parallelism_config.tp > 1 and self._network_config:
+                # AllGather for tensor parallel
+                activation_bytes = batch * seq_len * 4096 * sa.precision_bytes  # Simplified
+                allgather_time_ns = self._network_config.estimate_collective_time_ns(
+                    CollectiveType.ALL_GATHER,
+                    activation_bytes,
+                    self._parallelism_config.tp
+                )
+                total_cycles += int(allgather_time_ns * sa.frequency_ghz * len(workload.layers))
+        
+        # Recalculate after parallelism
+        execution_time_ns = total_cycles / sa.frequency_ghz
+        throughput_tflops = (total_ops / execution_time_ns) * 1e-3 if execution_time_ns > 0 else 0
+        
+        # Estimate energy with hardware config if available
+        if self._hardware_config:
+            compute_energy_j = total_ops * self._hardware_config.core.energy_per_flop_j
+            memory_energy_j = 0
+            for level_name, level_config in self._hardware_config.memory_hierarchy.items():
+                level_bytes = total_bytes * (0.3 if 'l0' in level_name else 0.5 if 'l1' in level_name else 0.8 if 'l2' in level_name else 1.0)
+                memory_energy_j += level_bytes * 8 * level_config.energy_per_bit_pj * 1e-12
+            total_energy_pj = (compute_energy_j + memory_energy_j) * 1e12
+        else:
+            compute_energy_pj_per_op = 0.5
+            memory_energy_pj_per_bit = 5.0
+            total_energy_pj = (total_ops * compute_energy_pj_per_op) + (total_bytes * 8 * memory_energy_pj_per_bit)
         
         # Detect bottlenecks
         bottlenecks = []
@@ -408,21 +535,22 @@ class SimulatorAPI:
                 'component': 'Memory System',
                 'type': 'memory_bandwidth',
                 'severity': 'high' if total_stalls > compute_cycles * 0.5 else 'medium',
-                'description': f'Memory stalls account for {(total_stalls/total_cycles*100):.1f}% of execution time.'
+                'description': f'Memory stalls account for {(total_stalls/max(total_cycles, 1)*100):.1f}% of execution time.'
             })
         
-        return {
-            'summary': {
-                'total_cycles': total_cycles,
-                'compute_cycles': compute_cycles,
-                'stall_cycles': total_stalls,
-                'utilization_pct': overall_util,
-                'throughput_tflops': throughput_tflops,
-                'total_energy_pj': total_energy,
-                'power_watts': sa.tdp_watts
-            },
-            'per_layer': per_layer_results,
-            'memory_hierarchy': [
+        # Build memory hierarchy response
+        if self._hardware_config:
+            memory_hierarchy = []
+            for level_name, level_config in self._hardware_config.memory_hierarchy.items():
+                factor = 0.3 if 'l0' in level_name else 0.5 if 'l1' in level_name else 0.8 if 'l2' in level_name else 1.0
+                memory_hierarchy.append({
+                    'name': level_config.name,
+                    'bytes_accessed': total_bytes * factor,
+                    'energy_pj': total_bytes * factor * 8 * level_config.energy_per_bit_pj,
+                    'bandwidth_util': min(95, overall_util * (1.2 if 'l0' in level_name else 1.0 if 'l1' in level_name else 0.8 if 'l2' in level_name else 0.6))
+                })
+        else:
+            memory_hierarchy = [
                 {
                     'name': 'L0 (Registers)',
                     'bytes_accessed': total_bytes * 0.3,
@@ -447,10 +575,35 @@ class SimulatorAPI:
                     'energy_pj': total_bytes * 8 * 10,
                     'bandwidth_util': min(70, overall_util * 0.6)
                 }
-            ],
+            ]
+        
+        result = {
+            'summary': {
+                'total_cycles': total_cycles,
+                'compute_cycles': compute_cycles,
+                'stall_cycles': total_stalls,
+                'utilization_pct': overall_util,
+                'throughput_tflops': throughput_tflops,
+                'total_energy_pj': total_energy_pj,
+                'power_watts': sa.tdp_watts
+            },
+            'per_layer': per_layer_results,
+            'memory_hierarchy': memory_hierarchy,
             'bottlenecks': bottlenecks,
             'workload': workload.get_summary()
         }
+        
+        # Add config info if available
+        if self._hardware_config:
+            result['hardware_config'] = self._hardware_config.to_dict()
+        if self._parallelism_config:
+            result['parallelism_config'] = self._parallelism_config.to_dict()
+        if self._network_config:
+            result['network_config'] = self._network_config.to_dict()
+        if model_config:
+            result['model_config'] = model_config.to_dict()
+        
+        return result
 
 
 # Global simulator instance

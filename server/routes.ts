@@ -67,6 +67,16 @@ export async function registerRoutes(
     }
   });
 
+  // Get available presets (hardware, models, networks)
+  app.get("/api/simulator/presets", async (req, res) => {
+    try {
+      const result = await runPythonScript('get_presets', {});
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 
