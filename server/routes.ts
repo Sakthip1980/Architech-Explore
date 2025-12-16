@@ -33,6 +33,18 @@ export async function registerRoutes(
     }
   });
   
+  // Build and run in one call (avoids process state issues)
+  app.post("/api/simulator/build-and-run", async (req, res) => {
+    try {
+      const { graph, cycles = 1000, workload = 'memory_intensive' } = req.body;
+      
+      const result = await runPythonScript('build_and_run', { graph, cycles, workload });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
   // Get system status
   app.get("/api/simulator/status", async (req, res) => {
     try {

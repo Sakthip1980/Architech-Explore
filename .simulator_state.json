@@ -1,0 +1,1 @@
+{"nodes": [{"id": "1", "data": {"label": "CPU Core", "frequency": "3.2", "power": "65"}}, {"id": "2", "data": {"label": "DRAM Controller", "tCL": "16", "tRCD": "18"}}], "edges": [{"source": "1", "target": "2"}]}

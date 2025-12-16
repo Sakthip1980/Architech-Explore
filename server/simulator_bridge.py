@@ -4,7 +4,14 @@ Bridge script between Node.js Express and Python simulator
 Receives commands via CLI and returns JSON results
 """
 import sys
+import os
 import json
+
+# Add project root to path (this script runs from server/ directory)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from simulator_api import simulator
 
 
@@ -24,6 +31,12 @@ def main():
                 cycles=data.get('cycles', 1000),
                 workload=data.get('workload', 'memory_intensive')
             )
+        elif command == 'build_and_run':
+            result = simulator.build_and_run(
+                graph_data=data.get('graph', {}),
+                cycles=data.get('cycles', 1000),
+                workload=data.get('workload', 'memory_intensive')
+            )
         elif command == 'get_status':
             result = simulator.get_system_status()
         else:
@@ -31,7 +44,9 @@ def main():
         
         print(json.dumps(result))
     except Exception as e:
-        print(json.dumps({'error': str(e)}), file=sys.stderr)
+        import traceback
+        error_info = {'error': str(e), 'traceback': traceback.format_exc()}
+        print(json.dumps(error_info))
         sys.exit(1)
 
 

@@ -1,19 +1,44 @@
 """API wrapper for the simulator backend"""
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import sys
 import os
+import json
 
-# Add simulator to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from simulator import System, DRAM, CPU, GPU, Interconnect
+
+# State file for persistence between calls
+STATE_FILE = os.path.join(project_root, '.simulator_state.json')
 
 
 class SimulatorAPI:
     """Interface between Express API and Python simulator"""
     
     def __init__(self):
-        self.system: System | None = None
+        self.system: Optional[System] = None
+        self._graph_data: Optional[Dict] = None
+        
+    def _save_state(self, graph_data: Dict):
+        """Save graph data to file for persistence"""
+        try:
+            with open(STATE_FILE, 'w') as f:
+                json.dump(graph_data, f)
+        except Exception:
+            pass
+    
+    def _load_state(self) -> Optional[Dict]:
+        """Load graph data from file"""
+        try:
+            if os.path.exists(STATE_FILE):
+                with open(STATE_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return None
         
     def build_system_from_graph(self, graph_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -28,6 +53,10 @@ class SimulatorAPI:
         nodes = graph_data.get('nodes', [])
         edges = graph_data.get('edges', [])
         
+        # Save state for later
+        self._save_state(graph_data)
+        self._graph_data = graph_data
+        
         # Create new system
         self.system = System(name='UserArchitecture')
         module_map = {}
@@ -35,7 +64,7 @@ class SimulatorAPI:
         # Create modules from nodes
         for node in nodes:
             node_id = node['id']
-            data = node['data']
+            data = node.get('data', {})
             label = data.get('label', 'Unknown')
             
             # Instantiate appropriate module type
@@ -106,14 +135,50 @@ class SimulatorAPI:
         Returns:
             Simulation results
         """
+        # Try to restore system from saved state if not built
+        if not self.system:
+            saved_state = self._load_state()
+            if saved_state:
+                self.build_system_from_graph(saved_state)
+        
         if not self.system:
             return {'error': 'No system built. Build a system first.'}
         
         results = self.system.simulate(cycles=cycles, workload=workload)
         return results
     
+    def build_and_run(
+        self,
+        graph_data: Dict[str, Any],
+        cycles: int = 1000,
+        workload: str = 'memory_intensive'
+    ) -> Dict[str, Any]:
+        """
+        Build system and run simulation in one call
+        
+        Args:
+            graph_data: Dictionary with 'nodes' and 'edges' from React Flow
+            cycles: Number of cycles to simulate
+            workload: Workload type
+            
+        Returns:
+            Combined build and simulation results
+        """
+        topology = self.build_system_from_graph(graph_data)
+        results = self.run_simulation(cycles=cycles, workload=workload)
+        return {
+            'topology': topology,
+            'simulation': results
+        }
+    
     def get_system_status(self) -> Dict[str, Any]:
         """Get current system status"""
+        # Try to restore system from saved state if not built
+        if not self.system:
+            saved_state = self._load_state()
+            if saved_state:
+                self.build_system_from_graph(saved_state)
+                
         if not self.system:
             return {'error': 'No system built'}
         

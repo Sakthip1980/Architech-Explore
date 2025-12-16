@@ -154,43 +154,33 @@ const FlowEditorInner = ({
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-mono text-xs gap-2"
             onClick={async () => {
               try {
-                toast({ title: "Building system...", description: "Converting graph to simulation model" });
+                toast({ title: "Running simulation...", description: "Building system and executing 1000 cycles" });
                 
-                // Build system
-                const buildRes = await fetch('/api/simulator/build', {
+                // Build and run in one call
+                const res = await fetch('/api/simulator/build-and-run', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ nodes, edges })
+                  body: JSON.stringify({ 
+                    graph: { nodes, edges },
+                    cycles: 1000, 
+                    workload: 'memory_intensive' 
+                  })
                 });
-                const buildData = await buildRes.json();
+                const data = await res.json();
                 
-                if (buildData.error) {
-                  toast({ title: "Build Error", description: buildData.error, variant: "destructive" });
+                if (data.error) {
+                  toast({ title: "Simulation Error", description: data.error, variant: "destructive" });
                   return;
                 }
                 
-                toast({ title: "Running simulation...", description: "Executing 1000 cycles" });
-                
-                // Run simulation
-                const simRes = await fetch('/api/simulator/run', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ cycles: 1000, workload: 'memory_intensive' })
-                });
-                const simData = await simRes.json();
-                
-                if (simData.error) {
-                  toast({ title: "Simulation Error", description: simData.error, variant: "destructive" });
-                  return;
-                }
-                
+                const simData = data.simulation;
                 toast({ 
                   title: "Simulation Complete!", 
                   description: `Avg Latency: ${simData.average_latency_ns?.toFixed(2)}ns | Power: ${simData.total_power_watts?.toFixed(1)}W`,
                   duration: 5000,
                 });
                 
-                console.log('Simulation Results:', simData);
+                console.log('Simulation Results:', data);
               } catch (error: any) {
                 toast({ 
                   title: "Error", 
