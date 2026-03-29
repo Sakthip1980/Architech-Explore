@@ -68,6 +68,15 @@ print(type(is_active))       # <class 'bool'>
 # Then print a sentence for each using an f-string.
 
 # YOUR CODE HERE:
+name = "H100"
+memory_gb = 80
+bandwidth_tbps = 3.35
+supports_fp8 = True
+
+print(f"GPU name: {name}")
+print(f"Memory: {memory_gb} GB")
+print(f"Bandwidth: {bandwidth_tbps} Tbps")
+print(f"Supports FP8: {supports_fp8}")
 
 
 # ============================================================
