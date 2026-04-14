@@ -1,6 +1,15 @@
 """
 ArchSim - System Architecture Simulator
 A modular simulation framework for exploring computer architecture designs
+
+Subpackages (new)
+-----------------
+simulator.hardware  — self-consistent property system, Block hierarchy, Connections
+simulator.workload  — Op types (GEMMOp, Conv2DOp, …), OpGraph
+simulator.engine    — roofline, AnalyticalEngine, EventDrivenEngine
+simulator.mapping   — LoopNest, DataflowMode, Mapper
+simulator.power     — PowerDomainModel, SystemPowerModel
+simulator.results   — SimResult, SensitivitySweep, visualization
 """
 
 from .system import System
@@ -30,11 +39,18 @@ from .models.cxl import CXL
 from .models.dma import DMAEngine
 from .models.memory_controller import MemoryController
 
-# Workloads
+# Workloads (existing)
 from .models.workload import (
     Workload, GEMMLayer, ConvLayer,
     get_resnet50_workload, get_gpt2_workload, get_llama7b_workload
 )
+
+# New subpackages — import lazily to avoid circular imports at module level
+# Use: from simulator.hardware import Block, PropertySchema, block_from_module
+# Use: from simulator.engine import AnalyticalEngine, EventDrivenEngine
+# Use: from simulator.mapping import Mapper, DataflowMode
+# Use: from simulator.power import SystemPowerModel
+# Use: from simulator.results import SimResult, SensitivitySweep, plot_roofline
 
 __all__ = [
     'System',
