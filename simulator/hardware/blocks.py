@@ -360,7 +360,26 @@ def block_from_module(module: Module) -> Block:
             except Exception:
                 pass  # skip attributes that can't be converted
 
-    # DRAM-specific: compute bandwidth from geometry + frequency
+    # ── NPU-specific: mac_units → ops_per_cycle (with precision multiplier)
+    mac_units = getattr(module, 'mac_units', None)
+    precision = getattr(module, 'precision', 'FP32')
+    if mac_units is not None and not blk._schema.get('ops_per_cycle'):
+        _precision_mul = {
+            'INT4': 8, 'INT8': 4, 'FP16': 2, 'BF16': 2, 'TF32': 2, 'FP32': 1
+        }
+        mul = _precision_mul.get(str(precision).upper(), 1)
+        # Each MAC = multiply + accumulate = 2 FLOPs; scale by precision
+        ops_per_cycle = mac_units * 2 * mul
+        blk._schema.set('ops_per_cycle', ops_per_cycle)
+
+    # ── SystolicArray-specific: array_height × array_width → ops_per_cycle
+    arr_h = getattr(module, 'array_height', None)
+    arr_w = getattr(module, 'array_width',  None)
+    if arr_h is not None and arr_w is not None and not blk._schema.get('ops_per_cycle'):
+        # Each cell does one MAC per cycle = 2 FLOPs
+        blk._schema.set('ops_per_cycle', arr_h * arr_w * 2)
+
+    # ── DRAM-specific: compute bandwidth from geometry + frequency
     # geometry = {bus_width: bits, ...}; frequency_mhz is transfer rate
     if not blk._schema.get('BW'):
         geo = getattr(module, 'geometry', None)

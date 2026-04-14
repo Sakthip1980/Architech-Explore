@@ -362,6 +362,10 @@ class PropertySchema:
         """Return value or None (short alias)."""
         return self._nodes[name].value
 
+    def _derivable(self, name: str) -> bool:
+        """True if this property can be (re-)derived — i.e. NOT user-set."""
+        return self._nodes[name].source != 'user'
+
     # ------------------------------------------------------------------
     # Equation groups
     # ------------------------------------------------------------------
@@ -382,7 +386,7 @@ class PropertySchema:
         Pt   = self._v('P_total')
 
         # P_dynamic = Cdyn * V^2 * f
-        if Pd is None and Cdyn is not None and V is not None and f is not None:
+        if self._derivable('P_dynamic') and Cdyn is not None and V is not None and f is not None:
             changed |= self._try_set('P_dynamic', Cdyn * V * V * f)
             Pd = self._v('P_dynamic')
         elif Cdyn is None and Pd is not None and V is not None and f is not None and V * V * f != 0:
@@ -398,7 +402,7 @@ class PropertySchema:
             f = self._v('frequency')
 
         # P_static = I_leak * V
-        if Ps is None and Il is not None and V is not None:
+        if self._derivable('P_static') and Il is not None and V is not None:
             changed |= self._try_set('P_static', Il * V)
             Ps = self._v('P_static')
         elif Il is None and Ps is not None and V is not None and V != 0:
@@ -411,7 +415,7 @@ class PropertySchema:
         Pd = self._v('P_dynamic')
         Ps = self._v('P_static')
         Pt = self._v('P_total')
-        if Pt is None and Pd is not None and Ps is not None:
+        if self._derivable('P_total') and Pd is not None and Ps is not None:
             changed |= self._try_set('P_total', Pd + Ps)
         elif Pd is None and Pt is not None and Ps is not None:
             changed |= self._try_set('P_dynamic', Pt - Ps)
@@ -433,7 +437,7 @@ class PropertySchema:
         Ep = self._v('E_per_op')
 
         # energy = P_total * time
-        if E is None and Pt is not None and t is not None:
+        if self._derivable('energy') and Pt is not None and t is not None:
             changed |= self._try_set('energy', Pt * t)
         elif t is None and E is not None and Pt is not None and Pt != 0:
             changed |= self._try_set('time', E / Pt)
@@ -442,7 +446,7 @@ class PropertySchema:
             Pt = self._v('P_total')
 
         # E_per_op = P_total / throughput
-        if Ep is None and Pt is not None and tp is not None and tp != 0:
+        if self._derivable('E_per_op') and Pt is not None and tp is not None and tp != 0:
             changed |= self._try_set('E_per_op', Pt / tp)
         elif tp is None and Pt is not None and Ep is not None and Ep != 0:
             changed |= self._try_set('throughput', Pt / Ep)
@@ -468,7 +472,7 @@ class PropertySchema:
         lt = self._v('latency_s')
 
         # BW = width_bytes * frequency
-        if BW is None and wb is not None and f is not None:
+        if self._derivable('BW') and wb is not None and f is not None:
             changed |= self._try_set('BW', wb * f)
             BW = self._v('BW')
         elif wb is None and BW is not None and f is not None and f != 0:
@@ -480,7 +484,7 @@ class PropertySchema:
         # BW_bytes_per_cycle = BW / frequency
         BW = self._v('BW')
         f  = self._v('frequency')
-        if Bc is None and BW is not None and f is not None and f != 0:
+        if self._derivable('BW_bytes_per_cycle') and BW is not None and f is not None and f != 0:
             changed |= self._try_set('BW_bytes_per_cycle', BW / f)
         elif BW is None and Bc is not None and f is not None:
             changed |= self._try_set('BW', Bc * f)
@@ -488,7 +492,7 @@ class PropertySchema:
 
         # latency_s = transfer_bytes / BW
         BW = self._v('BW')
-        if lt is None and sz is not None and BW is not None and BW != 0:
+        if self._derivable('latency_s') and sz is not None and BW is not None and BW != 0:
             changed |= self._try_set('latency_s', sz / BW)
         elif sz is None and lt is not None and BW is not None:
             changed |= self._try_set('transfer_bytes', lt * BW)
@@ -513,7 +517,7 @@ class PropertySchema:
         ut  = self._v('utilization')
 
         # throughput = ops_per_cycle * frequency
-        if tp is None and opc is not None and f is not None:
+        if self._derivable('throughput') and opc is not None and f is not None:
             changed |= self._try_set('throughput', opc * f)
             tp = self._v('throughput')
         elif opc is None and tp is not None and f is not None and f != 0:
@@ -525,13 +529,13 @@ class PropertySchema:
         # throughput_per_cycle = throughput / frequency  (= ops_per_cycle)
         tp = self._v('throughput')
         f  = self._v('frequency')
-        if tpc is None and tp is not None and f is not None and f != 0:
+        if self._derivable('throughput_per_cycle') and tp is not None and f is not None and f != 0:
             changed |= self._try_set('throughput_per_cycle', tp / f)
         elif tp is None and tpc is not None and f is not None:
             changed |= self._try_set('throughput', tpc * f)
 
         # utilization = actual_ops / peak_ops
-        if ut is None and aop is not None and pop is not None and pop != 0:
+        if self._derivable('utilization') and aop is not None and pop is not None and pop != 0:
             changed |= self._try_set('utilization', aop / pop)
         elif aop is None and ut is not None and pop is not None:
             changed |= self._try_set('actual_ops', ut * pop)
@@ -550,7 +554,7 @@ class PropertySchema:
         tja = self._v('theta_ja')
         Tj  = self._v('T_junction')
 
-        if Tj is None and Ta is not None and Pt is not None and tja is not None:
+        if self._derivable('T_junction') and Ta is not None and Pt is not None and tja is not None:
             changed |= self._try_set('T_junction', Ta + Pt * tja)
         elif Ta is None and Tj is not None and Pt is not None and tja is not None:
             changed |= self._try_set('T_ambient', Tj - Pt * tja)
@@ -570,7 +574,7 @@ class PropertySchema:
         f  = self._v('frequency')
         t  = self._v('time')
 
-        if t is None and cy is not None and f is not None and f != 0:
+        if self._derivable('time') and cy is not None and f is not None and f != 0:
             changed |= self._try_set('time', cy / f)
         elif cy is None and t is not None and f is not None:
             changed |= self._try_set('cycles', t * f)
